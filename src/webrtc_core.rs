@@ -17,24 +17,24 @@ use webrtc::{
     peer_connection::sdp::session_description::RTCSessionDescription,
 };
 
-use crate::dbus_portal::CursorControl;
+use crate::host_control::ControlWrapper;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, BoxError>;
 
 pub struct WebRtcCore {
     api: webrtc::api::API,
-    cursor_control: Arc<dyn CursorControl>,
+    control_wrapper: Arc<dyn ControlWrapper>,
     pairing_allowed: Arc<AtomicBool>,
 }
 
 impl WebRtcCore {
     pub async fn new(
-        cursor_control: Arc<dyn CursorControl>,
+        control_wrapper: Arc<dyn ControlWrapper>,
         pairing_allowed: Arc<AtomicBool>,
     ) -> Self {
         let api = APIBuilder::new().build();
-        Self { api, cursor_control, pairing_allowed }
+        Self { api, control_wrapper, pairing_allowed }
     }
 
     pub async fn handle_signaling(
@@ -58,12 +58,13 @@ impl WebRtcCore {
 
         let pc = Arc::new(self.api.new_peer_connection(config).await?);
         let tx = Arc::new(tx);
-        let cursor_control = self.cursor_control.clone();
+        let cursor_control = self.control_wrapper.get_cursor_control();
         let pairing_flag = self.pairing_allowed.clone();
+        let (screen_width, screen_height) = self.control_wrapper.get_screen_info().get_screen_dimensions();
 
         pc.on_data_channel(Box::new(move |channel: Arc<RTCDataChannel>| {
-            let cursor_control = cursor_control.clone();
             let pairing_flag = pairing_flag.clone();
+            let cursor_control = cursor_control.clone();
 
             Box::pin(async move {
                 let open_flag = pairing_flag.clone();
@@ -74,7 +75,6 @@ impl WebRtcCore {
                     })
                 }));
 
-                let cursor_control = cursor_control.clone();
                 channel.on_message(Box::new(move |message: DataChannelMessage| {
                     let cursor_control = cursor_control.clone();
                     Box::pin(async move {
@@ -83,13 +83,13 @@ impl WebRtcCore {
                             if data.len() == 20 {
                                 let x_ratio = f32::from_le_bytes([data[0], data[1], data[2], data[3]]);
                                 let y_ratio = f32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-                                let screen_width = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
-                                let screen_height = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+                                let _screen_width = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                                let _screen_height = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
                                 let _pressure = f32::from_le_bytes([data[16], data[17], data[18], data[19]]);
                                 
-                                let x = (x_ratio * screen_width as f32).clamp(0.0, screen_width as f32) as u32;
-                                let y = (y_ratio * screen_height as f32).clamp(0.0, screen_height as f32) as u32;
-                                let _ = cursor_control.move_cursor(x, y).await;
+                                let x = x_ratio.clamp(0.0, 1.0) as f64 * screen_width as f64;
+                                let y = y_ratio.clamp(0.0, 1.0) as f64 * screen_height as f64;
+                                let _ = cursor_control.move_cursor(x, y).await.unwrap();
                             }
                         }
                     })
@@ -115,7 +115,6 @@ impl WebRtcCore {
             })
         }));
 
-        let (screen_width, screen_height) = self.cursor_control.get_screen_dimensions();
         let init_message = json!({
             "type": "screen-dimensions",
             "width": screen_width,

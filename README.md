@@ -26,6 +26,7 @@ This project is inspired by [Jibhong/ALTablet](https://github.com/Jibhong/ALTabl
 - Linux (Wayland or X11)
 - [Rust](https://rust-lang.org/tools/install/)
 - libxrandr-dev (for X11)
+- xdg-desktop-portal (for Wayland)
 
 #### Build
 ```sh
