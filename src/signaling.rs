@@ -8,7 +8,7 @@ use std::{
 
 use axum::{
     Router, extract::{
-         State, ws::{ Message, WebSocket, WebSocketUpgrade }
+         State, ws::{ CloseFrame, Message, WebSocket, WebSocketUpgrade }
     }, http::status::StatusCode, response::{ Html, IntoResponse, Response }, routing::get,
 };
 use thiserror::Error;
@@ -136,12 +136,37 @@ async fn handle_websocket(
     mut socket: WebSocket,
     state: Arc<AppState>
 ) {
+    let pairing_flag = state.pairing_allowed.clone();
+    if !pairing_flag.load(Ordering::SeqCst) {
+        let _ = socket.send(Message::Close(Some(CloseFrame {
+            code: 4503,
+            reason: std::borrow::Cow::Borrowed("Service Unavailable.")
+        }))).await;
+        let _ = socket.close().await;
+        return;
+    }
     if let Some(Ok(Message::Text(text))) = socket.recv().await {
         if text.trim() != state.pin.as_str() {
+            let _ = socket.send(Message::Close(Some(CloseFrame {
+                code: 4401,
+                reason: std::borrow::Cow::Borrowed("Incorrect PIN.")
+            }))).await;
             let _ = socket.close().await;
             return;
         }
     } else {
+        let _ = socket.send(Message::Close(Some(CloseFrame {
+            code: 4400,
+            reason: std::borrow::Cow::Borrowed("Invalid handshake.")
+        }))).await;
+        let _ = socket.close().await;
+        return;
+    }
+    if !pairing_flag.load(Ordering::SeqCst) {
+        let _ = socket.send(Message::Close(Some(CloseFrame {
+            code: 4503,
+            reason: std::borrow::Cow::Borrowed("Service Unavailable.")
+        }))).await;
         let _ = socket.close().await;
         return;
     }
@@ -150,5 +175,7 @@ async fn handle_websocket(
         .send(Message::Text(json!({ "type": "pin-ok" }).to_string()))
         .await;
 
-    let _ = state.webrtc.handle_signaling(socket, state.pairing_allowed.clone()).await;
+    pairing_flag.store(false, Ordering::SeqCst);
+    let _ = state.webrtc.handle_signaling(socket).await;
+    pairing_flag.store(true, Ordering::SeqCst);
 }

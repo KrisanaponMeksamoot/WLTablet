@@ -1,9 +1,4 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
@@ -24,23 +19,20 @@ type Result<T> = std::result::Result<T, BoxError>;
 
 pub struct WebRtcCore {
     api: webrtc::api::API,
-    control_wrapper: Arc<dyn ControlWrapper>,
-    pairing_allowed: Arc<AtomicBool>,
+    control_wrapper: Arc<dyn ControlWrapper>
 }
 
 impl WebRtcCore {
     pub async fn new(
-        control_wrapper: Arc<dyn ControlWrapper>,
-        pairing_allowed: Arc<AtomicBool>,
+        control_wrapper: Arc<dyn ControlWrapper>
     ) -> Self {
         let api = APIBuilder::new().build();
-        Self { api, control_wrapper, pairing_allowed }
+        Self { api, control_wrapper }
     }
 
     pub async fn handle_signaling(
         &self,
         socket: WebSocket,
-        _pairing_allowed: Arc<AtomicBool>,
     ) -> Result<()> {
         let (mut sender, mut receiver) = socket.split();
         let (tx, mut rx): (UnboundedSender<Message>, _) = unbounded_channel();
@@ -59,22 +51,12 @@ impl WebRtcCore {
         let pc = Arc::new(self.api.new_peer_connection(config).await?);
         let tx = Arc::new(tx);
         let cursor_control = self.control_wrapper.get_cursor_control();
-        let pairing_flag = self.pairing_allowed.clone();
         let (screen_width, screen_height) = self.control_wrapper.get_screen_info().get_screen_dimensions();
 
         pc.on_data_channel(Box::new(move |channel: Arc<RTCDataChannel>| {
-            let pairing_flag = pairing_flag.clone();
             let cursor_control = cursor_control.clone();
 
             Box::pin(async move {
-                let open_flag = pairing_flag.clone();
-                channel.on_open(Box::new(move || {
-                    let open_flag = open_flag.clone();
-                    Box::pin(async move {
-                        open_flag.store(false, Ordering::SeqCst);
-                    })
-                }));
-
                 channel.on_message(Box::new(move |message: DataChannelMessage| {
                     let cursor_control = cursor_control.clone();
                     Box::pin(async move {

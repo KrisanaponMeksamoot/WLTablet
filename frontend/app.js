@@ -114,13 +114,22 @@ async function startSession(pin) {
     }
   });
 
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (ev) => {
     setStatus("Connection closed.");
+    if (ev.code >= 4000) {
+      setStatus(ev.reason);
+    }
+    close();
   });
 
   socket.addEventListener("error", () => {
     setStatus("WebSocket error.");
+    close();
   });
+}
+
+function close() {
+  overlay.style.removeProperty("display");
 }
 
 async function buildPeerConnection() {

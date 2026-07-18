@@ -4,16 +4,24 @@ mod webrtc_core;
 mod host_control;
 
 use std::{
-    collections::HashMap, error::Error, fs::File, io::Read, net::SocketAddr, sync::{
+    error::Error, fs::File, io::Read, net::SocketAddr, sync::{
         Arc, atomic::AtomicBool,
     },
 };
 
+use clap::Parser;
+use regex::Regex;
 use tokio::net::TcpListener;
-use zbus::zvariant::Value;
 
-use crate::{dbus_portal::{RemoteDesktopPortal, WaylandControlWrapper}, host_control::{ControlWrapper, CursorControl, ScreenInfo, X11ControlWrapper, X11CursorControl}};
+use crate::{dbus_portal::WaylandControlWrapper, host_control::{ControlWrapper, X11ControlWrapper}};
 use crate::webrtc_core::WebRtcCore;
+
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    #[arg(short, long)]
+    pin: Option<String>
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,8 +33,18 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let pin: Arc<String> = Arc::new(generate_pairing_pin()?);
-    // let pin: Arc<String> = Arc::new("676767".to_string()); // testing
+    let args = Args::parse();
+    if let Some(pin) = &args.pin {
+        let re = Regex::new("\\d{6}").unwrap();
+        if pin.len() != 6 || !re.is_match(&pin) {
+            panic!("Invalid PIN format");
+        }
+    }
+
+    let pin: Arc<String> = Arc::new(match args.pin {
+        None => generate_pairing_pin().unwrap(),
+        Some(pin) => pin
+    });
 
     println!();
     println!("\x1b[1;32mWLTablet pairing PIN: {}\x1b[0m", pin);
@@ -42,7 +60,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let pairing_allowed = Arc::new(AtomicBool::new(true));
-    let webrtc_core = Arc::new(WebRtcCore::new(control_wrapper.clone(), pairing_allowed.clone()).await);
+    let webrtc_core = Arc::new(WebRtcCore::new(control_wrapper.clone()).await);
 
     let state = Arc::new(AppState { pin, pairing_allowed, webrtc: webrtc_core, control_wrapper });
     let app = signaling::build_router(state.clone());

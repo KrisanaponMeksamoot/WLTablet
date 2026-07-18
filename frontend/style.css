@@ -46,6 +46,11 @@ canvas {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
 }
 
+#pinForm {
+  display: flex;
+  flex-direction: column;
+}
+
 h1 {
   margin: 0 0 8px;
   font-size: 1.8rem;
@@ -65,7 +70,6 @@ button {
 }
 
 input {
-  width: 100%;
   padding: 14px 16px;
   border-radius: 14px;
   background: #111827;
