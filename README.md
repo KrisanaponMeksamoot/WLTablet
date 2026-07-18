@@ -40,6 +40,14 @@ cargo build --release
 
 The server will start on `0.0.0.0:8080` and display a 6-digit pairing PIN in the terminal.
 
+If you want it to be more secure,
+you can connect your device with specific interface (ie. USB, Bluetooth)
+```bash
+./target/release/wltablet \
+    --pin 123456          \
+    --listen ${ip -br addr show dev <INTERFACE NAME> | awk '{print $3}' | cut -d'/' -f1}:8080
+```
+
 ### Mobile Setup
 
 #### 1. Get Host Address

@@ -20,7 +20,10 @@ use crate::webrtc_core::WebRtcCore;
 #[command(version, about)]
 struct Args {
     #[arg(short, long)]
-    pin: Option<String>
+    pin: Option<String>,
+
+    #[arg(short, long, default_value_t = SocketAddr::from(([0, 0, 0, 0], 8080)))]
+    listen: SocketAddr
 }
 
 #[derive(Clone)]
@@ -45,6 +48,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None => generate_pairing_pin().unwrap(),
         Some(pin) => pin
     });
+    
+    let addr = args.listen;
 
     println!();
     println!("\x1b[1;32mWLTablet pairing PIN: {}\x1b[0m", pin);
@@ -65,7 +70,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = Arc::new(AppState { pin, pairing_allowed, webrtc: webrtc_core, control_wrapper });
     let app = signaling::build_router(state.clone());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
 
