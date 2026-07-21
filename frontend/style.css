@@ -47,6 +47,11 @@ canvas {
   background: rgba(5, 8, 14, 0.82);
 }
 
+#statusDebug {
+  color: red;
+  position: absolute;
+}
+
 .panel {
   width: min(420px, calc(100% - 32px));
   padding: 24px;

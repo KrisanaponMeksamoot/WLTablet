@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::ws::{Message, WebSocket};
+use axum::{body::Bytes, extract::ws::{Message, WebSocket}};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -57,15 +57,22 @@ impl WebRtcCore {
             let cursor_control = cursor_control.clone();
 
             Box::pin(async move {
+                let channel2 = channel.clone();
                 channel.on_message(Box::new(move |message: DataChannelMessage| {
                     let cursor_control = cursor_control.clone();
+                    let channel2 = channel2.clone();
                     Box::pin(async move {
                         if !message.is_string {
                             let data = message.data;
-                            if data.len() == 12 {
-                                let x_ratio = f32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-                                let y_ratio = f32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-                                let pressure = f32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                            let id = u16::from_le_bytes([data[0], data[1]]);
+                            if id == 0 {
+                                let mut data = data.to_vec();
+                                data[0] = 8;
+                                channel2.send(&Bytes::from(data)).await.unwrap();
+                            } else if id == 2 {
+                                let x_ratio = f32::from_le_bytes([data[2], data[3], data[4], data[5]]);
+                                let y_ratio = f32::from_le_bytes([data[6], data[7], data[8], data[9]]);
+                                let pressure = f32::from_le_bytes([data[10], data[11], data[12], data[13]]);
                                 
                                 let x = x_ratio.clamp(0.0, 1.0) as f64 * screen_width as f64;
                                 let y = y_ratio.clamp(0.0, 1.0) as f64 * screen_height as f64;

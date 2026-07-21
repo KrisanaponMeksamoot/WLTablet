@@ -3,6 +3,7 @@ const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
 const pinForm = document.getElementById("pinForm");
 const pinInput = document.getElementById("pinInput");
+const statusDbg = document.getElementById("statusDebug");
 
 const settingsOverlay = document.getElementById("settingsOverlay");
 const settingsButton = document.getElementById("settingsButton");
@@ -87,6 +88,7 @@ let hostScreenHeight = 1080;
 
 function setStatus(message) {
   statusEl.textContent = message;
+  updateDebugStatus();
 }
 
 function savePinPreference(pin) {
@@ -196,6 +198,7 @@ async function startSession(pin) {
   socket = new WebSocket(wsUrl);
   socket.binaryType = "arraybuffer";
   connection_active = true;
+  ping_stat.reset();
 
   socket.addEventListener("open", () => {
     socket.send(pin);
@@ -258,6 +261,42 @@ function close() {
   overlay.style.removeProperty("display");
 }
 
+let ping_stat = {
+  time: NaN,
+  received: 0,
+  lost: 0,
+
+  last_ping: [],
+
+  _seq_c: 0,
+
+  send_ping() {
+    if (!connection_active || !dataChannel || dataChannel.readyState !== "open") return;
+    
+    this._seq_c++;
+    this.last_ping.push([this._seq_c, Date.now()]);
+    if (this.last_ping.length > 0)
+      this.time = Date.now() - this.last_ping[0][1];
+
+    if (this.last_ping.length > 20)
+      this.last_ping.shift();
+
+    const buffer = new ArrayBuffer(6);
+    const view = new DataView(buffer);
+    view.setUint16(0, 0, true);
+    view.setUint32(2, this._seq_c, true);
+
+    dataChannel.send(buffer);
+  },
+
+  reset() {
+    this.time = NaN;
+    this.received = 0;
+    this.lost = 0;
+    this.last_ping = [];
+  }
+};
+
 async function buildPeerConnection() {
   pc = new RTCPeerConnection({ iceServers: [] });
 
@@ -281,6 +320,26 @@ async function buildPeerConnection() {
     overlay.style.display = "none";
     setStatus("Pointer channel open. Draw now.");
   };
+
+  dataChannel.onmessage = (ev) => {
+    const view = new DataView(ev.data);
+    const id = view.getUint16(0, true);
+    if (id == 0) {
+      view.setUint16(0, 8);
+      dataChannel.send(view.buffer);
+    } else if (id == 8) {
+      let seq = view.getUint32(2, true);
+      let i = ping_stat.last_ping.findIndex(v => v[0]==seq);
+      if (i>=0) {
+        ping_stat.lost += i;
+        while (i--) ping_stat.last_ping.shift();
+        let [_seq, t] = ping_stat.last_ping.shift();
+        ping_stat.time = Date.now() - t;
+        ping_stat.received++;
+      }
+      updateDebugStatus();
+    }
+  }
 
   dataChannel.onclose = () => {
     setStatus("Pointer channel closed.");
@@ -316,17 +375,31 @@ function processPointerData(event) {
 }
 
 function sendPointerData(xRatio, yRatio, pressure) {
-  if (!connection_active || !dataChannel || dataChannel.readyState !== "open") {
-    return;
-  }
+  if (!connection_active || !dataChannel || dataChannel.readyState !== "open") return;
 
-  const buffer = new ArrayBuffer(12);
+  const buffer = new ArrayBuffer(14);
   const view = new DataView(buffer);
-  view.setFloat32(0, xRatio, true);
-  view.setFloat32(4, yRatio, true);
-  view.setFloat32(8, pressure, true);
+  view.setUint16(0, 2, true);
+  view.setFloat32(2, xRatio, true);
+  view.setFloat32(6, yRatio, true);
+  view.setFloat32(10, pressure, true);
 
   dataChannel.send(buffer);
 }
 
 settings.apply();
+
+function updateDebugStatus() {
+  statusDbg.innerText = `connected: ${connection_active}`;
+  if (connection_active) {
+    statusDbg.innerText += `\nping: ${ping_stat.time} ms`;
+    if (ping_stat.lost) {
+      statusDbg.innerText += ` lost: ${Math.round(ping_stat.lost/(ping_stat.lost+ping_stat.received)*100)}%`;
+    }
+  }
+}
+
+setInterval(() => {
+  ping_stat.send_ping();
+  updateDebugStatus();
+}, 1000);
