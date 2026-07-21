@@ -62,16 +62,19 @@ impl WebRtcCore {
                     Box::pin(async move {
                         if !message.is_string {
                             let data = message.data;
-                            if data.len() == 20 {
+                            if data.len() == 12 {
                                 let x_ratio = f32::from_le_bytes([data[0], data[1], data[2], data[3]]);
                                 let y_ratio = f32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-                                let _screen_width = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
-                                let _screen_height = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-                                let _pressure = f32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+                                let pressure = f32::from_le_bytes([data[8], data[9], data[10], data[11]]);
                                 
                                 let x = x_ratio.clamp(0.0, 1.0) as f64 * screen_width as f64;
                                 let y = y_ratio.clamp(0.0, 1.0) as f64 * screen_height as f64;
-                                let _ = cursor_control.move_cursor(x, y).await.unwrap();
+                                cursor_control.move_cursor(x, y).await.unwrap();
+                                (if pressure > 0.0 {
+                                    cursor_control.press_button(1)
+                                } else {
+                                    cursor_control.release_button(1)
+                                }).await.unwrap();
                             }
                         }
                     })

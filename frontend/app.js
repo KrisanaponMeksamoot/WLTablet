@@ -1,76 +1,201 @@
-const canvas = document.getElementById("pointerCanvas");
+const inputArea = document.getElementById("inputArea");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
 const pinForm = document.getElementById("pinForm");
 const pinInput = document.getElementById("pinInput");
 
+const settingsOverlay = document.getElementById("settingsOverlay");
+const settingsButton = document.getElementById("settingsButton");
+const closeSettingsButton = document.getElementById("closeSettingsButton");
+const settingsForm = document.getElementById("settingsForm");
+const canvasWidthInput = document.getElementById("canvasWidth");
+const canvasHeightInput = document.getElementById("canvasHeight");
+const preserveAspectCheckbox = document.getElementById("preserveAspect");
+const rememberPinCheckbox = document.getElementById("rememberPin");
+const autoConnectCheckbox = document.getElementById("autoConnect");
+
+const STORAGE_KEY = "wltablet-settings";
+const PIN_STORAGE_KEY = "wltablet-last-pin";
+
+class Settings {
+  constructor(options = {}) {
+    this.canvasWidth = options.canvasWidth ?? screen.availWidth;
+    this.canvasHeight = options.canvasHeight ?? screen.availHeight;
+    this.preserveAspectRatio = options.preserveAspectRatio ?? preserveAspectCheckbox.checked;
+    this.rememberPin = options.rememberPin ?? rememberPinCheckbox.checked;
+    this.autoConnect = options.autoConnect ?? autoConnectCheckbox.checked;
+  }
+
+  sync() {
+    this.canvasWidth = canvasWidthInput.valueAsNumber;
+    this.canvasHeight = canvasHeightInput.valueAsNumber;
+
+    this.preserveAspectRatio = preserveAspectCheckbox.checked;
+    this.rememberPin = rememberPinCheckbox.checked;
+    this.autoConnect = autoConnectCheckbox.checked;
+  }
+  
+  save() {
+    this.sync();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this));
+  }
+
+  apply() {
+    canvasWidthInput.value = this.canvasWidth;
+    canvasHeightInput.value = this.canvasHeight;
+
+    inputArea.style.width = inputArea.width = this.canvasWidth;
+    inputArea.style.height = inputArea.height = this.canvasHeight;
+
+    preserveAspectCheckbox.checked = this.preserveAspectRatio;
+
+    rememberPinCheckbox.checked = this.rememberPin;
+    autoConnectCheckbox.checked = this.autoConnect;
+
+    if (this.rememberPin) {
+      const savedPin = localStorage.getItem(PIN_STORAGE_KEY) || "";
+      pinInput.value = savedPin;
+    }
+
+    if (this.rememberPin && this.autoConnect && !connection_active) {
+      const savedPin = pinInput.value;
+      if (/^\d{6}$/.test(savedPin)) {
+        setStatus("Auto connecting...");
+        startSession(savedPin);
+      }
+    }
+  }
+
+  static load() {
+    try {
+      return new Settings(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"));
+    } catch (error) {
+      console.error("Could not parse settings", error);
+    }
+    return new Settings();
+  }
+}
+
+let settings = Settings.load();
+
 let pc = null;
 let dataChannel = null;
 let socket = null;
-let screenWidth = 1920;
-let screenHeight = 1080;
-let canvasScaleX = 1;
-let canvasScaleY = 1;
-let canvasOffsetX = 0;
-let canvasOffsetY = 0;
+let connection_active = false;
+let hostScreenWidth = 1920;
+let hostScreenHeight = 1080;
 
 function setStatus(message) {
   statusEl.textContent = message;
 }
 
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  updateCanvasAspectRatio();
+function savePinPreference(pin) {
+  if (settings.rememberPin) {
+    localStorage.setItem(PIN_STORAGE_KEY, pin);
+  } else {
+    localStorage.removeItem(PIN_STORAGE_KEY);
+  }
 }
 
-function updateCanvasAspectRatio() {
-  const windowAspect = window.innerWidth / window.innerHeight;
-  const screenAspect = screenWidth / screenHeight;
-
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (windowAspect > screenAspect) {
-    const scaledHeight = window.innerHeight;
-    const scaledWidth = scaledHeight * screenAspect;
-    canvasScaleX = scaledWidth / screenWidth;
-    canvasScaleY = scaledHeight / screenHeight;
-    canvasOffsetX = (window.innerWidth - scaledWidth) / 2;
-    canvasOffsetY = 0;
-  } else {
-    const scaledWidth = window.innerWidth;
-    const scaledHeight = scaledWidth / screenAspect;
-    canvasScaleX = scaledWidth / screenWidth;
-    canvasScaleY = scaledHeight / screenHeight;
-    canvasOffsetX = 0;
-    canvasOffsetY = (window.innerHeight - scaledHeight) / 2;
+function syncCanvasSizeInputs(changedId) {
+  if (!preserveAspectCheckbox.checked) {
+    return;
   }
 
-  ctx.fillStyle = "#070a11";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  let targetAspectRatio = hostScreenWidth / hostScreenHeight;
+  
+  if (changedId === "canvasWidth") {
+    const nextHeight = Math.round(canvasWidthInput.valueAsNumber / targetAspectRatio);
+    canvasHeightInput.value = nextHeight;
+  } else {
+    const nextWidth = Math.round(canvasHeightInput.valueAsNumber * targetAspectRatio);
+    canvasWidthInput.value = nextWidth;
+  }
 }
 
-window.addEventListener("resize", resizeCanvas);
-resizeCanvas();
+function openSettingsPanel() {
+  settingsOverlay.hidden = false;
+  settingsButton.setAttribute("aria-expanded", "true");
+}
+
+function closeSettingsPanel() {
+  settingsOverlay.hidden = true;
+  settingsButton.setAttribute("aria-expanded", "false");
+}
+
+settingsButton.addEventListener("click", openSettingsPanel);
+closeSettingsButton.addEventListener("click", closeSettingsPanel);
+settingsOverlay.addEventListener("click", (event) => {
+  if (event.target === settingsOverlay) {
+    closeSettingsPanel();
+  }
+});
+
+document.getElementById("resetSetting").addEventListener("click", () => {
+  settings = new Settings();
+  settings.apply();
+});
+
+canvasWidthInput.addEventListener("input", () => {
+  syncCanvasSizeInputs("canvasWidth");
+  settings.sync();
+  settings.apply();
+});
+
+canvasHeightInput.addEventListener("input", () => {
+  syncCanvasSizeInputs("canvasHeight");
+  settings.sync();
+  settings.apply();
+});
+
+preserveAspectCheckbox.addEventListener("change", () => {
+  syncCanvasSizeInputs("canvasHeight");
+
+  settings.sync();
+  settings.apply();
+});
+
+settingsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+
+  settings.sync();
+  settings.save();
+
+  const pin = pinInput.value.trim();
+  savePinPreference(pin);
+
+  closeSettingsPanel();
+
+  if (settings.autoConnect && /^\d{6}$/.test(pin)) {
+    setStatus("Auto connecting...");
+    startSession(pin);
+  } else {
+    setStatus("Settings saved.");
+  }
+});
 
 pinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+
   const pin = pinInput.value.trim();
   if (!/^\d{6}$/.test(pin)) {
     setStatus("Enter a valid 6-digit PIN.");
     return;
   }
+
+  savePinPreference(pin);
   setStatus("Connecting...");
   await startSession(pin);
 });
 
 async function startSession(pin) {
+  if (connection_active) return;
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   const wsUrl = `${protocol}://${location.host}/ws`;
 
   socket = new WebSocket(wsUrl);
   socket.binaryType = "arraybuffer";
+  connection_active = true;
 
   socket.addEventListener("open", () => {
     socket.send(pin);
@@ -83,10 +208,9 @@ async function startSession(pin) {
         const payload = JSON.parse(event.data);
 
         if (payload.type === "screen-dimensions") {
-          screenWidth = payload.width;
-          screenHeight = payload.height;
-          updateCanvasAspectRatio();
-          setStatus(`Server resolution: ${screenWidth}x${screenHeight}`);
+          hostScreenWidth = payload.width;
+          hostScreenHeight = payload.height;
+          setStatus(`Server resolution: ${hostScreenWidth}x${hostScreenHeight}`);
           return;
         }
 
@@ -115,6 +239,7 @@ async function startSession(pin) {
   });
 
   socket.addEventListener("close", (ev) => {
+    connection_active = false;
     setStatus("Connection closed.");
     if (ev.code >= 4000) {
       setStatus(ev.reason);
@@ -123,6 +248,7 @@ async function startSession(pin) {
   });
 
   socket.addEventListener("error", () => {
+    connection_active = false;
     setStatus("WebSocket error.");
     close();
   });
@@ -154,7 +280,6 @@ async function buildPeerConnection() {
   dataChannel.onopen = () => {
     overlay.style.display = "none";
     setStatus("Pointer channel open. Draw now.");
-    enablePointerCapture();
   };
 
   dataChannel.onclose = () => {
@@ -165,7 +290,6 @@ async function buildPeerConnection() {
     event.channel.onopen = () => {
       overlay.style.display = "none";
       setStatus("Pointer channel open. Draw now.");
-      enablePointerCapture();
     };
   };
 
@@ -174,51 +298,35 @@ async function buildPeerConnection() {
   socket.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
 }
 
-function enablePointerCapture() {
-  canvas.addEventListener("pointermove", sendPointerData, { passive: false });
-  canvas.addEventListener("pointerdown", (event) => event.preventDefault());
-  canvas.addEventListener("pointerup", (event) => event.preventDefault());
-  canvas.addEventListener("pointercancel", (event) => event.preventDefault());
+inputArea.addEventListener("pointermove", processPointerData);
+inputArea.addEventListener("pointerdown", processPointerData);
+inputArea.addEventListener("pointerup", processPointerData);
+inputArea.addEventListener("pointercancel", processPointerData);
+
+function processPointerData(event) {
+  event.preventDefault();
+  let {clientX, clientY, pressure} = event;
+
+  let bound = inputArea.getBoundingClientRect();
+
+  const xRatio = Math.max(0, Math.min((clientX - bound.left) / inputArea.width, 1.0));
+  const yRatio = Math.max(0, Math.min((clientY - bound.top) / inputArea.height, 1.0));
+
+  sendPointerData(xRatio, yRatio, pressure);
 }
 
-function sendPointerData(event) {
-  if (!dataChannel || dataChannel.readyState !== "open") {
+function sendPointerData(xRatio, yRatio, pressure) {
+  if (!connection_active || !dataChannel || dataChannel.readyState !== "open") {
     return;
   }
 
-  event.preventDefault();
-
-  const canvasRect = canvas.getBoundingClientRect();
-  const clientX = event.clientX;
-  const clientY = event.clientY;
-
-  const xOnScaledArea = Math.max(
-    0,
-    Math.min(clientX - canvasOffsetX, canvasRect.width - canvasOffsetX * 2)
-  );
-  const yOnScaledArea = Math.max(
-    0,
-    Math.min(clientY - canvasOffsetY, canvasRect.height - canvasOffsetY * 2)
-  );
-
-  const xRatio = Math.max(
-    0,
-    Math.min(xOnScaledArea / (canvasScaleX * screenWidth), 1.0)
-  );
-  const yRatio = Math.max(
-    0,
-    Math.min(yOnScaledArea / (canvasScaleY * screenHeight), 1.0)
-  );
-  const pressure =
-    typeof event.pressure === "number" ? event.pressure : event.buttons ? 1.0 : 0.0;
-
-  const buffer = new ArrayBuffer(20);
+  const buffer = new ArrayBuffer(12);
   const view = new DataView(buffer);
   view.setFloat32(0, xRatio, true);
   view.setFloat32(4, yRatio, true);
-  view.setUint32(8, screenWidth, true);
-  view.setUint32(12, screenHeight, true);
-  view.setFloat32(16, pressure, true);
+  view.setFloat32(8, pressure, true);
 
   dataChannel.send(buffer);
 }
+
+settings.apply();
