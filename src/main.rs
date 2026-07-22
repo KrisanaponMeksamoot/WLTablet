@@ -1,19 +1,27 @@
-mod dbus_portal;
 mod signaling;
 mod webrtc_core;
 mod host_control;
 
+#[cfg(target_os = "linux")]
+mod dbus_portal;
+
 use std::{
-    error::Error, fs::File, io::Read, net::SocketAddr, sync::{
+    error::Error, net::SocketAddr, sync::{
         Arc, atomic::AtomicBool,
     },
 };
 
 use clap::Parser;
+use rand::RngExt;
 use regex::Regex;
 use tokio::net::TcpListener;
 
+#[cfg(target_os = "linux")]
 use crate::{dbus_portal::WaylandControlWrapper, host_control::{ControlWrapper, X11ControlWrapper}};
+
+#[cfg(target_os = "windows")]
+use crate::{host_control::{ControlWrapper, WindowsControlWrapper}};
+
 use crate::webrtc_core::WebRtcCore;
 
 #[derive(Parser, Debug)]
@@ -56,12 +64,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!();
 
     
-    let control_wrapper: Arc<dyn ControlWrapper> = if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        println!("Detected Wayland, using RemoteDesktopPortal");
-        Arc::new(WaylandControlWrapper::new().await?)
-    } else {
-        println!("Detected X11, using X11CursorControl");
-        Arc::new(X11ControlWrapper::new()?)
+    #[cfg(target_os = "linux")]
+    let control_wrapper: Arc<dyn ControlWrapper> =
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            println!("Detected Wayland, using RemoteDesktopPortal");
+            Arc::new(WaylandControlWrapper::new().await?)
+        } else {
+            println!("Detected X11, using X11CursorControl");
+            Arc::new(X11ControlWrapper::new()?)
+        };
+
+    #[cfg(target_os = "windows")]
+    let control_wrapper: Arc<dyn ControlWrapper> = {
+        println!("Detected Windows, using Windows cursor control");
+        Arc::new(WindowsControlWrapper::new()?)
     };
 
     let pairing_allowed = Arc::new(AtomicBool::new(true));
@@ -79,9 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn generate_pairing_pin() -> std::io::Result<String> {
-    let mut source = File::open("/dev/urandom")?;
-    let mut bytes = [0u8; 4];
-    source.read_exact(&mut bytes)?;
-    let value = u32::from_ne_bytes(bytes) % 1_000_000;
+    let mut rng = rand::rng();
+    let value = rng.random_range(0..1_000_000);
     Ok(format!("{:06}", value))
 }

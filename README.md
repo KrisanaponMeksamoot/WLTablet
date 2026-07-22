@@ -10,7 +10,7 @@ This project is inspired by [Jibhong/ALTablet](https://github.com/Jibhong/ALTabl
 | ⏳ | **Cross-platform Input Stream**|
 | ✅ | Control your mouse with your mobile device's stylus |
 | ⏳ | Customize tablet input area (Position, Scale and Aspect Ratio) |
-| ⏳ | Custom Background Image |
+| ⏬ | Custom Background Image |
 | ⏬ | Stylus pressure support |
 
 ✅ Finished
@@ -22,11 +22,14 @@ This project is inspired by [Jibhong/ALTablet](https://github.com/Jibhong/ALTabl
 
 ### Host Setup
 
-#### Prerequisites
+#### Prerequisites for Linux
 - Linux (Wayland or X11)
 - [Rust](https://rust-lang.org/tools/install/)
 - libxrandr-dev (for X11)
 - xdg-desktop-portal (for Wayland)
+
+#### Prerequisites for Windows
+- [Rust](https://rust-lang.org/tools/install/)
 
 #### Build
 ```sh
@@ -45,7 +48,7 @@ you can connect your device with specific interface (ie. USB, Bluetooth)
 ```bash
 ./target/release/wltablet \
     --pin 123456          \
-    --listen ${ip -br addr show dev <INTERFACE NAME> | awk '{print $3}' | cut -d'/' -f1}:8080
+    --listen x.x.x.x:8080
 ```
 
 ### Mobile Setup
@@ -85,7 +88,7 @@ note: subjected to change
 ## Usage
 
 - **Move cursor:** Move your stylus on the canvas
-- 🚫 **Click:** Tap on the canvas
+- **Click:** Tap on the canvas
 - **Disconnect:** Close the web page or refresh
 
 ## Supported Platforms
@@ -93,7 +96,7 @@ note: subjected to change
 ### Host
 - ✅ Linux (Wayland) - RemoteDesktop Portal
 - ✅ Linux (X11) - XTest extension
-- 🚫 Windows - Windows API
+- ✅ Windows - Windows API
 - 🚫 macOS
 
 ### Mobile

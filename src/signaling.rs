@@ -74,6 +74,7 @@ impl IntoResponse for ApiError {
 
 #[derive(Error, Debug)]
 pub enum AppError {
+    #[cfg(target_os = "linux")]
     #[error("Systemd D-Bus error: {0}")]
     Dbus(#[from] zbus::Error),
     
