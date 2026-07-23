@@ -6,14 +6,13 @@ mod host_control;
 mod dbus_portal;
 
 use std::{
-    error::Error, net::SocketAddr, sync::{
+    error::Error, fmt::{self, Display}, net::SocketAddr, str::FromStr, sync::{
         Arc, atomic::AtomicBool,
     },
 };
 
 use clap::Parser;
 use rand::RngExt;
-use regex::Regex;
 use tokio::net::TcpListener;
 
 #[cfg(target_os = "linux")]
@@ -28,15 +27,44 @@ use crate::webrtc_core::WebRtcCore;
 #[command(version, about)]
 struct Args {
     #[arg(short, long)]
-    pin: Option<String>,
+    pin: Option<Pin>,
 
     #[arg(short, long, default_value_t = SocketAddr::from(([0, 0, 0, 0], 8080)))]
     listen: SocketAddr
 }
 
+#[derive(Clone, Debug)]
+pub struct Pin ([u8; 6]);
+
+impl Pin {
+    fn as_str(&self) -> &str {
+        str::from_utf8(&self.0).unwrap()
+    }
+}
+
+impl FromStr for Pin {
+    type Err = fmt::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() == 6 && s.as_bytes().iter().all(|&x| x.is_ascii_digit()) {
+            let b: [u8; 6] = s.as_bytes()[0..6].try_into().unwrap();
+            Ok(Pin(b))
+        } else {
+            Err(fmt::Error{})
+        }
+    }
+}
+
+impl Display for Pin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())?;
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
-    pub pin: Arc<String>,
+    pub pin: Arc<Pin>,
     pub pairing_allowed: Arc<AtomicBool>,
     pub webrtc: Arc<WebRtcCore>,
     pub control_wrapper: Arc<dyn ControlWrapper>,
@@ -45,14 +73,8 @@ pub struct AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    if let Some(pin) = &args.pin {
-        let re = Regex::new("\\d{6}").unwrap();
-        if pin.len() != 6 || !re.is_match(&pin) {
-            panic!("Invalid PIN format");
-        }
-    }
 
-    let pin: Arc<String> = Arc::new(match args.pin {
+    let pin: Arc<Pin> = Arc::new(match args.pin {
         None => generate_pairing_pin().unwrap(),
         Some(pin) => pin
     });
@@ -94,8 +116,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn generate_pairing_pin() -> std::io::Result<String> {
+fn generate_pairing_pin() -> std::io::Result<Pin> {
     let mut rng = rand::rng();
     let value = rng.random_range(0..1_000_000);
-    Ok(format!("{:06}", value))
+    Ok(Pin::from_str(&format!("{:06}", value)).unwrap())
 }

@@ -6,11 +6,10 @@ use std::future::Future;
 use std::{
     collections::HashMap,
     fmt::Write,
-    fs::File,
-    io::Read,
 };
 
 use futures_util::StreamExt;
+use rand::Rng;
 use tokio::sync::Mutex;
 use zbus::proxy::SignalStream;
 use zbus::{Connection, Proxy, zvariant};
@@ -363,12 +362,8 @@ impl ScreenInfo for ScreenCastPortal {
 
 pub fn generate_handle_token() -> String {
     let mut buffer = [0u8; 16];
-    if let Ok(mut file) = File::open("/dev/urandom") {
-        let _ = file.read_exact(&mut buffer);
-    } else {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u128;
-        buffer.copy_from_slice(&nanos.to_le_bytes());
-    }
+    let mut rng = rand::rng();
+    rng.fill_bytes(buffer.as_mut_slice());
     let mut token = String::with_capacity(32);
     for byte in buffer.iter() {
         write!(token, "{:02x}", byte).unwrap();
