@@ -26,11 +26,14 @@ body {
 
 #app {
   position: relative;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 canvas {
   display: block;
-  background: #222;
+  background: #88888833;
   touch-action: none;
   user-select: none;
 }
@@ -106,8 +109,7 @@ input {
   border: 1px solid #2d3748;
 }
 
-button {
-  width: 100%;
+button, input[type=button] {
   padding: 14px;
   margin-top: 14px;
   border-radius: 14px;
@@ -117,7 +119,11 @@ button {
   transition: transform 120ms ease, filter 120ms ease;
 }
 
-button:hover {
+button {
+  width: 100%;
+}
+
+button:hover, input[type=button]:hover {
   filter: brightness(1.05);
   transform: translateY(-1px);
 }
@@ -144,6 +150,8 @@ button:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
 }
 
 .panel-header {

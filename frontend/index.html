@@ -11,9 +11,9 @@
     <div class="center-container">
       <canvas id="inputArea"></canvas>
     </div>
-    <button id="settingsButton" class="settings-toggle" type="button">Settings</button>
+    <button id="settingsButton" class="settings-toggle" type="button" onclick="openSettingsPanel();">Settings</button>
 
-    <div id="overlay" class="overlay">
+    <div id="overlay" class="center-container">
       <div class="panel">
         <h1>WLTablet</h1>
         <p>Enter a 6-digit pairing PIN from the server.</p>
@@ -37,10 +37,10 @@
       <div class="panel settings-panel">
         <div class="panel-header">
           <h2>Settings</h2>
-          <button id="closeSettingsButton" class="secondary-button" type="button">Close</button>
+          <button id="closeSettingsButton" class="secondary-button" type="button" onclick="closeSettingsPanel();">Close</button>
         </div>
 
-        <form id="settingsForm" class="settings-form">
+        <div id="settingsForm" class="settings-form">
           <div class="field-group">
             <h3>Canvas</h3>
             <label class="field">
@@ -54,6 +54,13 @@
             <label class="checkbox-row">
               <input id="preserveAspect" type="checkbox" checked>
               <span>Preserve aspect ratio</span>
+            </label>
+            <label class="field">
+              <span>Background Image</span>
+              <div>
+                <input id="backgroundImage" type="file" accept="image/*" onchange="if (this.files.length > 0) settings.setCanvasBackground(this.files[0]);">
+                <input type="button" value="remove" onclick="settings.setCanvasBackground(null);">
+              </div>
             </label>
           </div>
 
@@ -70,8 +77,8 @@
           </div>
 
           <button id="resetSetting" class="settings-save">Reset</button>
-          <button type="submit" class="settings-save">Save settings</button>
-        </form>
+          <button class="settings-save" onclick="settings.sync();settings.save();settings.apply();closeSettingsPanel();">Save settings</button>
+        </div>
       </div>
     </div>
     <a id="statusDebug"></a>

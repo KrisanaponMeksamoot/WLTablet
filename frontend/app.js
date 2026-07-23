@@ -1,3 +1,4 @@
+const appDiv = document.getElementById("app");
 const inputArea = document.getElementById("inputArea");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
@@ -7,16 +8,28 @@ const statusDbg = document.getElementById("statusDebug");
 
 const settingsOverlay = document.getElementById("settingsOverlay");
 const settingsButton = document.getElementById("settingsButton");
-const closeSettingsButton = document.getElementById("closeSettingsButton");
-const settingsForm = document.getElementById("settingsForm");
 const canvasWidthInput = document.getElementById("canvasWidth");
 const canvasHeightInput = document.getElementById("canvasHeight");
 const preserveAspectCheckbox = document.getElementById("preserveAspect");
 const rememberPinCheckbox = document.getElementById("rememberPin");
 const autoConnectCheckbox = document.getElementById("autoConnect");
 
-const STORAGE_KEY = "wltablet-settings";
+const SETTING_KEY = "wltablet-settings";
 const PIN_STORAGE_KEY = "wltablet-last-pin";
+
+function bytesToBase64(bytes) {
+  const binString = Array.from(bytes, (byte) =>
+    String.fromCodePoint(byte),
+  ).join("");
+  return btoa(binString);
+}
+
+function base64ToBytes(base64) {
+  const binString = Array.from(atob(base64), (char) =>
+    char.codePointAt(0),
+  );
+  return new Uint8Array(binString);
+}
 
 class Settings {
   constructor(options = {}) {
@@ -25,6 +38,31 @@ class Settings {
     this.preserveAspectRatio = options.preserveAspectRatio ?? preserveAspectCheckbox.checked;
     this.rememberPin = options.rememberPin ?? rememberPinCheckbox.checked;
     this.autoConnect = options.autoConnect ?? autoConnectCheckbox.checked;
+    this.canvasBackground = options.canvasBackground ?? null;
+    this._canvasBackgroundBlob = null;
+    this._canvasBackgroundUrl = null;
+
+    if (this.canvasBackground)
+      try {
+        let {data, type} = this.canvasBackground;
+        this._canvasBackgroundBlob = new Blob([base64ToBytes(data)], { type });
+        this._canvasBackgroundUrl = URL.createObjectURL(this._canvasBackgroundBlob);
+      } catch (e) {
+        console.error(e);
+      }
+  }
+
+  async setCanvasBackground(blob) {
+    this._canvasBackgroundBlob = blob;
+    if (blob) {
+      this.canvasBackground = { data: bytesToBase64(await blob.bytes()), type: blob.type };
+      this._canvasBackgroundUrl = URL.createObjectURL(this._canvasBackgroundBlob);
+      appDiv.style.backgroundImage = `url("${this._canvasBackgroundUrl}")`;
+    } else {
+      this.canvasBackground = null;
+      this._canvasBackgroundUrl = null;
+      appDiv.style.removeProperty("background-image");
+    }
   }
 
   sync() {
@@ -38,7 +76,10 @@ class Settings {
   
   save() {
     this.sync();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this));
+    localStorage.setItem(SETTING_KEY, JSON.stringify(this, (k, v) => {
+      if (k.startsWith("_")) return undefined;
+      return v;
+    }));
   }
 
   apply() {
@@ -52,6 +93,8 @@ class Settings {
 
     rememberPinCheckbox.checked = this.rememberPin;
     autoConnectCheckbox.checked = this.autoConnect;
+
+    this.setCanvasBackground(this._canvasBackgroundBlob);
 
     if (this.rememberPin) {
       const savedPin = localStorage.getItem(PIN_STORAGE_KEY) || "";
@@ -69,7 +112,7 @@ class Settings {
 
   static load() {
     try {
-      return new Settings(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"));
+      return new Settings(JSON.parse(localStorage.getItem(SETTING_KEY) || "{}"));
     } catch (error) {
       console.error("Could not parse settings", error);
     }
@@ -125,8 +168,6 @@ function closeSettingsPanel() {
   settingsButton.setAttribute("aria-expanded", "false");
 }
 
-settingsButton.addEventListener("click", openSettingsPanel);
-closeSettingsButton.addEventListener("click", closeSettingsPanel);
 settingsOverlay.addEventListener("click", (event) => {
   if (event.target === settingsOverlay) {
     closeSettingsPanel();
@@ -155,25 +196,6 @@ preserveAspectCheckbox.addEventListener("change", () => {
 
   settings.sync();
   settings.apply();
-});
-
-settingsForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-
-  settings.sync();
-  settings.save();
-
-  const pin = pinInput.value.trim();
-  savePinPreference(pin);
-
-  closeSettingsPanel();
-
-  if (settings.autoConnect && /^\d{6}$/.test(pin)) {
-    setStatus("Auto connecting...");
-    startSession(pin);
-  } else {
-    setStatus("Settings saved.");
-  }
 });
 
 pinForm.addEventListener("submit", async (event) => {
@@ -278,8 +300,10 @@ let ping_stat = {
     if (this.last_ping.length > 0)
       this.time = Date.now() - this.last_ping[0][1];
 
-    if (this.last_ping.length > 20)
+    if (this.last_ping.length > 10) {
       this.last_ping.shift();
+      this.lost++;
+    }
 
     const buffer = new ArrayBuffer(6);
     const view = new DataView(buffer);
@@ -357,10 +381,20 @@ async function buildPeerConnection() {
   socket.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
 }
 
+/**
+ * @type {CanvasRenderingContext2D}
+ */
+let ctx = inputArea.getContext("2d");
+
+let lastPointer = null;
+
 inputArea.addEventListener("pointermove", processPointerData);
 inputArea.addEventListener("pointerdown", processPointerData);
 inputArea.addEventListener("pointerup", processPointerData);
-inputArea.addEventListener("pointercancel", processPointerData);
+inputArea.addEventListener("pointercancel", () => {
+  processPointerData();
+  lastPointer = null;
+});
 
 function processPointerData(event) {
   event.preventDefault();
@@ -368,11 +402,38 @@ function processPointerData(event) {
 
   let bound = inputArea.getBoundingClientRect();
 
-  const xRatio = Math.max(0, Math.min((clientX - bound.left) / inputArea.width, 1.0));
-  const yRatio = Math.max(0, Math.min((clientY - bound.top) / inputArea.height, 1.0));
+  let x = clientX - bound.left;
+  let y = clientY - bound.top;
+
+  if (lastPointer) {
+    ctx.beginPath();
+    ctx.moveTo(lastPointer.x, lastPointer.y);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${(lastPointer.pressure + pressure)/2})`;
+    ctx.stroke();
+  }
+
+  lastPointer = { x, y, pressure };
+
+  const xRatio = Math.max(0, Math.min(x / inputArea.width, 1.0));
+  const yRatio = Math.max(0, Math.min(y / inputArea.height, 1.0));
 
   sendPointerData(xRatio, yRatio, pressure);
 }
+
+let lt = 0;
+function animate(t) {
+  let dt = t - lt;
+  lt = t;
+
+  ctx.globalCompositeOperation = "destination-out"
+  ctx.fillStyle = `rgba(0, 0, 0, ${dt/200})`;
+  ctx.fillRect(0, 0, inputArea.width, inputArea.height);
+  ctx.globalCompositeOperation = "source-over"
+
+  requestAnimationFrame(animate);
+}
+animate();
 
 function sendPointerData(xRatio, yRatio, pressure) {
   if (!connection_active || !dataChannel || dataChannel.readyState !== "open") return;
@@ -396,6 +457,7 @@ function updateDebugStatus() {
     if (ping_stat.lost) {
       statusDbg.innerText += ` lost: ${Math.round(ping_stat.lost/(ping_stat.lost+ping_stat.received)*100)}%`;
     }
+    statusDbg.innerText += `\nhost resolution: ${hostScreenWidth}x${hostScreenHeight}`;
   }
 }
 

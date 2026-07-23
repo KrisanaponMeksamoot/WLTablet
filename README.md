@@ -9,8 +9,9 @@ This project is inspired by [Jibhong/ALTablet](https://github.com/Jibhong/ALTabl
 | --- | --- |
 | ⏳ | **Cross-platform Input Stream**|
 | ✅ | Control your mouse with your mobile device's stylus |
-| ⏳ | Customize tablet input area (Position, Scale and Aspect Ratio) |
-| ⏬ | Custom Background Image |
+| ✅ | Customize tablet input area (Scale and Aspect Ratio) |
+| ⏬ | Customize tablet input area (Position) |
+| ✅ | Custom Background Image |
 | ⏬ | Stylus pressure support |
 
 ✅ Finished
@@ -118,12 +119,9 @@ WLTablet uses PIN-based pairing to ensure only authorized devices can connect. E
 ## Contributing
 
 Contributions are welcome! Areas of interest:
-- Windows host support
 - macOS support
 - Input customization UI
 - Performance optimization
-
-note: most code are written by AI
 
 ## License
 
