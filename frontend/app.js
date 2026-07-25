@@ -13,6 +13,7 @@ const canvasHeightInput = document.getElementById("canvasHeight");
 const preserveAspectCheckbox = document.getElementById("preserveAspect");
 const rememberPinCheckbox = document.getElementById("rememberPin");
 const autoConnectCheckbox = document.getElementById("autoConnect");
+const enableWebrtcCheckbox = document.getElementById("enableWebrtc");
 
 const SETTING_KEY = "wltablet-settings";
 const PIN_STORAGE_KEY = "wltablet-last-pin";
@@ -38,6 +39,7 @@ class Settings {
     this.preserveAspectRatio = options.preserveAspectRatio ?? preserveAspectCheckbox.checked;
     this.rememberPin = options.rememberPin ?? rememberPinCheckbox.checked;
     this.autoConnect = options.autoConnect ?? autoConnectCheckbox.checked;
+    this.enableWebrtc = options.enableWebrtc ?? enableWebrtcCheckbox.checked;
     this.canvasBackground = options.canvasBackground ?? null;
     this._canvasBackgroundBlob = null;
     this._canvasBackgroundUrl = null;
@@ -72,6 +74,7 @@ class Settings {
     this.preserveAspectRatio = preserveAspectCheckbox.checked;
     this.rememberPin = rememberPinCheckbox.checked;
     this.autoConnect = autoConnectCheckbox.checked;
+    this.enableWebrtc = enableWebrtcCheckbox.checked;
   }
   
   save() {
@@ -93,6 +96,7 @@ class Settings {
 
     rememberPinCheckbox.checked = this.rememberPin;
     autoConnectCheckbox.checked = this.autoConnect;
+    enableWebrtcCheckbox.checked = this.enableWebrtc;
 
     this.setCanvasBackground(this._canvasBackgroundBlob);
 
@@ -101,7 +105,7 @@ class Settings {
       pinInput.value = savedPin;
     }
 
-    if (this.rememberPin && this.autoConnect && !connection_active) {
+    if (this.rememberPin && this.autoConnect && !connection?.is_active()) {
       const savedPin = pinInput.value;
       if (/^\d{6}$/.test(savedPin)) {
         setStatus("Auto connecting...");
@@ -123,9 +127,7 @@ class Settings {
 let settings = Settings.load();
 
 let pc = null;
-let dataChannel = null;
 let socket = null;
-let connection_active = false;
 let hostScreenWidth = 1920;
 let hostScreenHeight = 1080;
 
@@ -212,14 +214,24 @@ pinForm.addEventListener("submit", async (event) => {
   await startSession(pin);
 });
 
+let connection = { is_active:()=>false, send(_){} };
+
 async function startSession(pin) {
-  if (connection_active) return;
+  if (connection.is_active()) return;
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   const wsUrl = `${protocol}://${location.host}/ws`;
 
   socket = new WebSocket(wsUrl);
   socket.binaryType = "arraybuffer";
-  connection_active = true;
+  connection = {
+    socket,
+    is_active() {
+      return socket.readyState === WebSocket.OPEN;
+    },
+    send(data) {
+      socket.send(data);
+    }
+  }
   ping_stat.reset();
 
   socket.addEventListener("open", () => {
@@ -240,8 +252,11 @@ async function startSession(pin) {
         }
 
         if (payload.type === "pin-ok") {
-          setStatus("PIN accepted, creating WebRTC handshake...");
-          await buildPeerConnection();
+          setStatus(settings.enableWebrtc ?
+              "PIN accepted, creating WebRTC handshake..." :
+              "PIN accepted. Draw now.");
+          overlay.style.display = "none";
+          if (settings.enableWebrtc) await buildPeerConnection();
           return;
         }
 
@@ -260,11 +275,12 @@ async function startSession(pin) {
       } catch (error) {
         console.error("Invalid server message", error);
       }
+    } else {
+      processIncomingPacket(event.data);
     }
   });
 
   socket.addEventListener("close", (ev) => {
-    connection_active = false;
     setStatus("Connection closed.");
     if (ev.code >= 4000) {
       setStatus(ev.reason);
@@ -273,7 +289,6 @@ async function startSession(pin) {
   });
 
   socket.addEventListener("error", () => {
-    connection_active = false;
     setStatus("WebSocket error.");
     close();
   });
@@ -293,7 +308,7 @@ let ping_stat = {
   _seq_c: 0,
 
   send_ping() {
-    if (!connection_active || !dataChannel || dataChannel.readyState !== "open") return;
+    if (!connection?.is_active()) return;
     
     this._seq_c++;
     this.last_ping.push([this._seq_c, Date.now()]);
@@ -310,7 +325,7 @@ let ping_stat = {
     view.setUint16(0, 0, true);
     view.setUint32(2, this._seq_c, true);
 
-    dataChannel.send(buffer);
+    connection.send(buffer);
   },
 
   reset() {
@@ -320,6 +335,26 @@ let ping_stat = {
     this.last_ping = [];
   }
 };
+
+function processIncomingPacket(data) {
+  const view = new DataView(data);
+  const id = view.getUint16(0, true);
+  if (id == 0) {
+    view.setUint16(0, 8);
+    connection.send(view.buffer);
+  } else if (id == 8) {
+    let seq = view.getUint32(2, true);
+    let i = ping_stat.last_ping.findIndex(v => v[0]==seq);
+    if (i>=0) {
+      ping_stat.lost += i;
+      while (i--) ping_stat.last_ping.shift();
+      let [_seq, t] = ping_stat.last_ping.shift();
+      ping_stat.time = Date.now() - t;
+      ping_stat.received++;
+    }
+    updateDebugStatus();
+  }
+}
 
 async function buildPeerConnection() {
   pc = new RTCPeerConnection({ iceServers: [] });
@@ -335,35 +370,27 @@ async function buildPeerConnection() {
     }
   };
 
-  dataChannel = pc.createDataChannel("pointer", {
+  let dataChannel = pc.createDataChannel("pointer", {
     ordered: false,
     maxRetransmits: 0,
   });
 
   dataChannel.onopen = () => {
+    connection = {
+      pc,
+      dataChannel,
+      is_active() {
+        return dataChannel.readyState == "open";
+      },
+      send(data) {
+        dataChannel.send(data);
+      }
+    }
     overlay.style.display = "none";
     setStatus("Pointer channel open. Draw now.");
   };
 
-  dataChannel.onmessage = (ev) => {
-    const view = new DataView(ev.data);
-    const id = view.getUint16(0, true);
-    if (id == 0) {
-      view.setUint16(0, 8);
-      dataChannel.send(view.buffer);
-    } else if (id == 8) {
-      let seq = view.getUint32(2, true);
-      let i = ping_stat.last_ping.findIndex(v => v[0]==seq);
-      if (i>=0) {
-        ping_stat.lost += i;
-        while (i--) ping_stat.last_ping.shift();
-        let [_seq, t] = ping_stat.last_ping.shift();
-        ping_stat.time = Date.now() - t;
-        ping_stat.received++;
-      }
-      updateDebugStatus();
-    }
-  }
+  dataChannel.onmessage = (ev) => processIncomingPacket(ev.data);
 
   dataChannel.onclose = () => {
     setStatus("Pointer channel closed.");
@@ -436,7 +463,7 @@ function animate(t) {
 animate();
 
 function sendPointerData(xRatio, yRatio, pressure) {
-  if (!connection_active || !dataChannel || dataChannel.readyState !== "open") return;
+  if (!connection?.is_active()) return;
 
   const buffer = new ArrayBuffer(14);
   const view = new DataView(buffer);
@@ -445,14 +472,14 @@ function sendPointerData(xRatio, yRatio, pressure) {
   view.setFloat32(6, yRatio, true);
   view.setFloat32(10, pressure, true);
 
-  dataChannel.send(buffer);
+  connection.send(buffer);
 }
 
 settings.apply();
 
 function updateDebugStatus() {
-  statusDbg.innerText = `connected: ${connection_active}`;
-  if (connection_active) {
+  statusDbg.innerText = `connected: ${connection?.is_active()??false}`;
+  if (connection?.is_active()) {
     statusDbg.innerText += `\nping: ${ping_stat.time} ms`;
     if (ping_stat.lost) {
       statusDbg.innerText += ` lost: ${Math.round(ping_stat.lost/(ping_stat.lost+ping_stat.received)*100)}%`;
