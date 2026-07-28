@@ -415,13 +415,26 @@ let ctx = inputArea.getContext("2d");
 
 let lastPointer = null;
 
-inputArea.addEventListener("pointermove", processPointerData);
-inputArea.addEventListener("pointerdown", processPointerData);
-inputArea.addEventListener("pointerup", processPointerData);
-inputArea.addEventListener("pointercancel", () => {
-  processPointerData();
+inputArea.addEventListener("pointermove", processPointerData, { passive: false });
+inputArea.addEventListener("pointerdown", (ev) => {
+  inputArea.setPointerCapture(ev.pointerId);
+  processPointerData(ev);
+}, { passive: false });
+inputArea.addEventListener("pointerup", (ev) => {
+  processPointerData(ev);
+  try { inputArea.releasePointerCapture(ev.pointerId); } catch(e) {}
   lastPointer = null;
-});
+}, { passive: false });
+inputArea.addEventListener("pointercancel", (ev) => {
+  processPointerData(ev);
+  try { inputArea.releasePointerCapture(ev.pointerId); } catch(e) {}
+  lastPointer = null;
+}, { passive: false });
+inputArea.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    e.preventDefault();
+  }
+}, { passive: false });
 
 function processPointerData(event) {
   event.preventDefault();
