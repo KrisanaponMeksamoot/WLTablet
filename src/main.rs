@@ -1,9 +1,6 @@
 mod signaling;
 mod webrtc_core;
-mod host_control;
-
-#[cfg(target_os = "linux")]
-mod dbus_portal;
+mod control;
 
 use std::{
     error::Error, fmt::{self, Display}, net::SocketAddr, str::FromStr, sync::{
@@ -15,12 +12,7 @@ use clap::Parser;
 use rand::RngExt;
 use tokio::net::TcpListener;
 
-#[cfg(target_os = "linux")]
-use crate::{dbus_portal::WaylandControlWrapper, host_control::{ControlWrapper, X11ControlWrapper}};
-
-#[cfg(target_os = "windows")]
-use crate::{host_control::{ControlWrapper, WindowsControlWrapper}};
-
+use crate::control::{ControlWrapper, get_control_wrapper};
 use crate::webrtc_core::WebRtcCore;
 
 #[derive(Parser, Debug)]
@@ -85,22 +77,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("\x1b[1;32mWLTablet pairing PIN: {}\x1b[0m", pin);
     println!();
 
-    
-    #[cfg(target_os = "linux")]
-    let control_wrapper: Arc<dyn ControlWrapper> =
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            println!("Detected Wayland, using RemoteDesktopPortal");
-            Arc::new(WaylandControlWrapper::new().await?)
-        } else {
-            println!("Detected X11, using X11CursorControl");
-            Arc::new(X11ControlWrapper::new()?)
-        };
-
-    #[cfg(target_os = "windows")]
-    let control_wrapper: Arc<dyn ControlWrapper> = {
-        println!("Detected Windows, using Windows cursor control");
-        Arc::new(WindowsControlWrapper::new()?)
-    };
+    let control_wrapper: Arc<dyn ControlWrapper> = get_control_wrapper().await?;
 
     let pairing_allowed = Arc::new(AtomicBool::new(true));
     let webrtc_core = Arc::new(WebRtcCore::new(control_wrapper.clone()).await);

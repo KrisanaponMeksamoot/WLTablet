@@ -15,10 +15,9 @@ use zbus::proxy::SignalStream;
 use zbus::{Connection, Proxy, zvariant};
 use zbus::zvariant::{Array, Dict, OwnedObjectPath, OwnedValue, Structure, Value};
 
-use crate::host_control::{ControlWrapper, CursorControl, ScreenInfo};
+use crate::control::{ControlWrapper, CursorControl, ScreenInfo};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-
 
 #[derive(Debug)]
 pub struct RemoteDesktopPortalProxy {
@@ -420,7 +419,7 @@ impl ControlWrapper for WaylandControlWrapper {
         self.remote_desktop_portal.clone()
     }
 
-    fn get_screen_info(&self) -> Arc<dyn crate::host_control::ScreenInfo> {
+    fn get_screen_info(&self) -> Arc<dyn ScreenInfo> {
         self.screen_cast_portal.clone()
     }
 }
