@@ -505,3 +505,7 @@ setInterval(() => {
   ping_stat.send_ping();
   updateDebugStatus();
 }, 1000);
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}

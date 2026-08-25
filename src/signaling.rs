@@ -19,6 +19,7 @@ use crate::AppState;
 static INDEX_HTML: &str = include_str!("../frontend/index.html");
 static STYLE_CSS: &str = include_str!("../frontend/style.css");
 static APP_JS: &str = include_str!("../frontend/app.js");
+static SW_JS: &str = include_str!("../frontend/sw.js");
 
 pub fn build_router(
     state: Arc<AppState>
@@ -27,6 +28,7 @@ pub fn build_router(
         .route("/", get(index))
         .route("/style.css", get(style))
         .route("/app.js", get(app_js))
+        .route("/sw.js", get(sw_js))
         .route("/ws", get(ws_upgrade))
         .with_state(state)
 }
@@ -119,6 +121,13 @@ async fn app_js() -> impl IntoResponse {
     (
         [("content-type", "application/javascript; charset=utf-8")],
         APP_JS
+    )
+}
+
+async fn sw_js() -> impl IntoResponse {
+    (
+        [("content-type", "application/javascript; charset=utf-8")],
+        SW_JS
     )
 }
 
