@@ -218,8 +218,8 @@ let connection = { is_active:()=>false, send(_){} };
 
 async function startSession(pin) {
   if (connection.is_active()) return;
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  const wsUrl = `${protocol}://${location.host}/ws`;
+  let wsUrl = new URL("./ws", location);
+  wsUrl.protocol = location.protocol === "https:" ? "wss" : "ws";
 
   socket = new WebSocket(wsUrl);
   socket.binaryType = "arraybuffer";

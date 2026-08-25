@@ -9,8 +9,10 @@ use std::{
 };
 
 use clap::Parser;
+use ipnet::IpNet;
 use rand::RngExt;
 use tokio::net::TcpListener;
+use webrtc::api::{APIBuilder, setting_engine::SettingEngine};
 
 use crate::control::{ControlWrapper, get_control_wrapper};
 use crate::webrtc_core::WebRtcCore;
@@ -22,7 +24,13 @@ struct Args {
     pin: Option<Pin>,
 
     #[arg(short, long, default_value_t = SocketAddr::from(([0, 0, 0, 0], 8080)))]
-    listen: SocketAddr
+    listen: SocketAddr,
+
+    #[arg(long = "force-webrtc-ip")]
+    force_webrtc_ip: Option<IpNet>,
+
+    #[arg(long = "webrtc-only")]
+    webrtc_only: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -80,7 +88,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let control_wrapper: Arc<dyn ControlWrapper> = get_control_wrapper().await?;
 
     let pairing_allowed = Arc::new(AtomicBool::new(true));
-    let webrtc_core = Arc::new(WebRtcCore::new(control_wrapper.clone()).await);
+    let webrtc_core = Arc::new(WebRtcCore::new({
+        let mut api = APIBuilder::new();
+        let mut setting_engine = SettingEngine::default();
+        if let Some(addr) = args.force_webrtc_ip {
+            setting_engine.set_nat_1to1_ips(vec![
+                addr.addr().to_string()
+            ], webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType::Host);
+            println!("Force WebRTC IP to {}", &addr);
+            let addr = addr.clone();
+            setting_engine.set_ip_filter(Box::new(move |ip| addr.contains(&ip)));
+        }
+        api = api.with_setting_engine(setting_engine);
+        api.build()
+    }, control_wrapper.clone(), args.webrtc_only).await);
 
     let state = Arc::new(AppState { pin, pairing_allowed, webrtc: webrtc_core, control_wrapper });
     let app = signaling::build_router(state.clone());

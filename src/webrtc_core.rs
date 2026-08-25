@@ -5,7 +5,6 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::sync::{Mutex, mpsc::{UnboundedSender, unbounded_channel}};
 use webrtc::{
-    api::APIBuilder,
     data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel},
     ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
     peer_connection::configuration::RTCConfiguration,
@@ -18,16 +17,19 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, BoxError>;
 
 pub struct WebRtcCore {
-    api: webrtc::api::API,
-    control_wrapper: Arc<dyn ControlWrapper>
+    pub api: webrtc::api::API,
+    pub control_wrapper: Arc<dyn ControlWrapper>,
+    pub rtc_config: Option<RTCConfiguration>,
+    webrtc_only: bool
 }
 
 impl WebRtcCore {
     pub async fn new(
-        control_wrapper: Arc<dyn ControlWrapper>
+        api: webrtc::api::API,
+        control_wrapper: Arc<dyn ControlWrapper>,
+        webrtc_only: bool
     ) -> Self {
-        let api = APIBuilder::new().build();
-        Self { api, control_wrapper }
+        Self { api, control_wrapper, rtc_config: None, webrtc_only }
     }
 
     pub async fn handle_signaling(
@@ -77,10 +79,11 @@ impl WebRtcCore {
             }
         });
 
-        let config = RTCConfiguration {
-            ice_servers: vec![],
-            ..Default::default()
-        };
+        let config = self.rtc_config.as_ref().map(|c| c.clone())
+            .unwrap_or(RTCConfiguration {
+                ice_servers: vec![],
+                ..Default::default()
+            });
 
         let pc = Arc::new(self.api.new_peer_connection(config).await?);
         let tx = Arc::new(sender_tx);
@@ -173,7 +176,9 @@ impl WebRtcCore {
                     }
                 },
                 Message::Binary(data) => {
-                    let _ = receiver_tx.send(Bytes::from(data));
+                    if !self.webrtc_only {
+                        let _ = receiver_tx.send(Bytes::from(data));
+                    }
                 }
                 Message::Close(_) => break,
                 _ => {}
