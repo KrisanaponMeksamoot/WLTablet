@@ -67,8 +67,8 @@ impl WebRtcCore {
                     let y_ratio = f32::from_le_bytes([data[6], data[7], data[8], data[9]]);
                     let pressure = f32::from_le_bytes([data[10], data[11], data[12], data[13]]);
                     
-                    let x = x_ratio.clamp(0.0, 1.0) as f64 * screen_width as f64;
-                    let y = y_ratio.clamp(0.0, 1.0) as f64 * screen_height as f64;
+                    let x = x_ratio.clamp(0.0, 1.0) as f64 * (screen_width-1) as f64;
+                    let y = y_ratio.clamp(0.0, 1.0) as f64 * (screen_height-1) as f64;
                     cursor_control.move_cursor(x, y).await.unwrap();
                     (if pressure > 0.0 {
                         cursor_control.press_button(1)
